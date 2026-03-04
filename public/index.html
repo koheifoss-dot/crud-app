@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>To-Do App</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #333; padding: 2rem; }
+    h1 { margin-bottom: 1.5rem; font-size: 1.5rem; }
+    .card { background: #fff; border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+    form { display: grid; gap: .75rem; }
+    .row { display: flex; gap: .5rem; flex-wrap: wrap; }
+    input[type="text"], input[type="date"] { border: 1px solid #ccc; border-radius: 4px; padding: .4rem .6rem; font-size: .9rem; }
+    input[type="text"] { flex: 1; min-width: 12rem; }
+    button { cursor: pointer; border: none; border-radius: 4px; padding: .4rem .8rem; font-size: .85rem; }
+    .btn-primary { background: #3b82f6; color: #fff; }
+    .btn-primary:hover { background: #2563eb; }
+    .btn-danger { background: #ef4444; color: #fff; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-save { background: #22c55e; color: #fff; }
+    .btn-save:hover { background: #16a34a; }
+    .btn-edit { background: #f59e0b; color: #fff; }
+    .btn-edit:hover { background: #d97706; }
+    #task-list { list-style: none; }
+    .task-item { background: #fff; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: .6rem; box-shadow: 0 1px 3px rgba(0,0,0,.08); display: flex; align-items: flex-start; gap: .75rem; }
+    .task-item.completed .task-title { text-decoration: line-through; color: #999; }
+    .task-check { margin-top: 3px; width: 1rem; height: 1rem; cursor: pointer; flex-shrink: 0; }
+    .task-body { flex: 1; }
+    .task-title { font-size: 1rem; }
+    .task-dates { font-size: .78rem; color: #666; margin-top: .3rem; }
+    .task-actions { display: flex; gap: .4rem; flex-shrink: 0; }
+    .edit-form { display: grid; gap: .5rem; margin-top: .5rem; }
+    .edit-form .row { gap: .4rem; }
+    label { font-size: .8rem; color: #555; }
+    .date-group { display: flex; flex-direction: column; gap: .2rem; }
+    .hidden { display: none; }
+    .empty { color: #999; font-style: italic; padding: .5rem 0; }
+  </style>
+</head>
+<body>
+  <h1>To-Do App</h1>
+
+  <div class="card">
+    <form id="create-form">
+      <div class="row">
+        <input type="text" id="new-title" placeholder="Task title" required />
+        <button type="submit" class="btn-primary">Add Task</button>
+      </div>
+      <div class="row">
+        <div class="date-group">
+          <label for="new-start">Start date</label>
+          <input type="date" id="new-start" />
+        </div>
+        <div class="date-group">
+          <label for="new-end">End date</label>
+          <input type="date" id="new-end" />
+        </div>
+        <div class="date-group">
+          <label for="new-due">Due date</label>
+          <input type="date" id="new-due" />
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <ul id="task-list"></ul>
+
+  <script>
+    const list = document.getElementById('task-list');
+
+    async function loadTasks() {
+      const res = await fetch('/api/tasks');
+      const tasks = await res.json();
+      render(tasks);
+    }
+
+    function fmt(d) {
+      return d ? new Date(d + 'T00:00:00').toLocaleDateString() : null;
+    }
+
+    function dateStr(task) {
+      const parts = [];
+      if (task.startDate) parts.push('Start: ' + fmt(task.startDate));
+      if (task.endDate)   parts.push('End: '   + fmt(task.endDate));
+      if (task.dueDate)   parts.push('Due: '   + fmt(task.dueDate));
+      return parts.join('  ·  ');
+    }
+
+    function render(tasks) {
+      if (!tasks.length) {
+        list.innerHTML = '<li class="empty">No tasks yet. Add one above!</li>';
+        return;
+      }
+      list.innerHTML = tasks.map(t => `
+        <li class="task-item${t.completed ? ' completed' : ''}" data-id="${t.id}">
+          <input class="task-check" type="checkbox" ${t.completed ? 'checked' : ''} title="Toggle complete" />
+          <div class="task-body">
+            <div class="task-title">${escHtml(t.title)}</div>
+            ${dateStr(t) ? `<div class="task-dates">${dateStr(t)}</div>` : ''}
+            <div class="edit-form hidden">
+              <input type="text" class="edit-title" value="${escHtml(t.title)}" />
+              <div class="row">
+                <div class="date-group"><label>Start</label><input type="date" class="edit-start" value="${t.startDate||''}" /></div>
+                <div class="date-group"><label>End</label><input type="date" class="edit-end" value="${t.endDate||''}" /></div>
+                <div class="date-group"><label>Due</label><input type="date" class="edit-due" value="${t.dueDate||''}" /></div>
+              </div>
+              <div class="row">
+                <button class="btn-save save-btn">Save</button>
+                <button class="cancel-btn" style="background:#e5e7eb">Cancel</button>
+              </div>
+            </div>
+          </div>
+          <div class="task-actions">
+            <button class="btn-edit edit-btn">Edit</button>
+            <button class="btn-danger delete-btn">Delete</button>
+          </div>
+        </li>
+      `).join('');
+
+      list.querySelectorAll('.task-item').forEach(item => {
+        const id = item.dataset.id;
+        item.querySelector('.task-check').addEventListener('change', e => toggleComplete(id, e.target.checked));
+        item.querySelector('.edit-btn').addEventListener('click', () => openEdit(item));
+        item.querySelector('.cancel-btn').addEventListener('click', () => closeEdit(item));
+        item.querySelector('.save-btn').addEventListener('click', () => saveEdit(id, item));
+        item.querySelector('.delete-btn').addEventListener('click', () => deleteTask(id));
+      });
+    }
+
+    function escHtml(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function openEdit(item) {
+      item.querySelector('.edit-form').classList.remove('hidden');
+      item.querySelector('.edit-btn').classList.add('hidden');
+    }
+
+    function closeEdit(item) {
+      item.querySelector('.edit-form').classList.add('hidden');
+      item.querySelector('.edit-btn').classList.remove('hidden');
+    }
+
+    async function toggleComplete(id, completed) {
+      await fetch(`/api/tasks/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ completed }),
+      });
+      loadTasks();
+    }
+
+    async function saveEdit(id, item) {
+      const title = item.querySelector('.edit-title').value.trim();
+      if (!title) return;
+      const body = {
+        title,
+        startDate: item.querySelector('.edit-start').value || undefined,
+        endDate:   item.querySelector('.edit-end').value   || undefined,
+        dueDate:   item.querySelector('.edit-due').value   || undefined,
+      };
+      await fetch(`/api/tasks/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      loadTasks();
+    }
+
+    async function deleteTask(id) {
+      if (!confirm('Delete this task?')) return;
+      await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
+      loadTasks();
+    }
+
+    document.getElementById('create-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const title = document.getElementById('new-title').value.trim();
+      if (!title) return;
+      const body = {
+        title,
+        startDate: document.getElementById('new-start').value || undefined,
+        endDate:   document.getElementById('new-end').value   || undefined,
+        dueDate:   document.getElementById('new-due').value   || undefined,
+      };
+      await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      e.target.reset();
+      loadTasks();
+    });
+
+    loadTasks();
+  </script>
+</body>
+</html>

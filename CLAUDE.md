@@ -12,15 +12,24 @@ npm start        # Run compiled output (requires build first)
 
 ## Architecture
 
-Minimal Node.js HTTP server written in TypeScript with no web framework — uses only the native `http` module.
+Node.js HTTP server built with **Express** and **TypeScript**. Data persists to a local `tasks.db` SQLite file via `better-sqlite3`. Frontend is a single static HTML file served from `public/`.
 
 - **Entry point**: `src/server.ts`
 - **Compiled output**: `dist/server.js`
+- **Frontend**: `public/index.html` (vanilla JS, no build step)
+- **Database**: `tasks.db` (SQLite, auto-created on first run)
 - **Port**: 3000 (or `PORT` env var)
 
-Current routes:
-- `GET /` — plain text response
+### Dependencies
+- `express` — HTTP routing and static file serving
+- `better-sqlite3` — synchronous SQLite driver
+
+### Routes
+- `GET /` — serves `public/index.html`
 - `GET /health` — JSON health check
-- All others — 404 JSON error
+- `GET /api/tasks` — list all tasks
+- `POST /api/tasks` — create a task (`{ title, startDate?, endDate?, dueDate? }`)
+- `PUT /api/tasks/:id` — update a task (any fields)
+- `DELETE /api/tasks/:id` — delete a task
 
 TypeScript config: ES2020 target, CommonJS modules, strict mode, `src/` → `dist/`.
