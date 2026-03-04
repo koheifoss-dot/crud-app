@@ -36,10 +36,62 @@
     .date-group { display: flex; flex-direction: column; gap: .2rem; }
     .hidden { display: none; }
     .empty { color: #999; font-style: italic; padding: .5rem 0; }
+
+    /* Filter bar */
+    .filter-section { margin-bottom: 1rem; }
+    .filter-header { font-size: .8rem; color: #666; margin-bottom: .4rem; text-transform: uppercase; letter-spacing: .04em; }
+    .filter-pills { display: flex; flex-wrap: wrap; gap: .35rem; min-height: 1.5rem; }
+    .filter-pill {
+      display: inline-flex; align-items: center;
+      border-radius: 999px; padding: .2rem .65rem;
+      font-size: .73rem; font-weight: 500;
+      cursor: pointer; border: 2px solid transparent;
+      transition: filter .15s;
+    }
+    .filter-pill:hover { filter: brightness(.9); }
+    .filter-pill.active { border-color: #1d4ed8; }
+
+    /* Tag pills (display) */
+    .task-tags { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .35rem; }
+    .tag-pill {
+      display: inline-flex; align-items: center;
+      border-radius: 999px; padding: .15rem .55rem;
+      font-size: .73rem; font-weight: 500;
+    }
+
+    /* Tag chip input */
+    .tag-field { display: flex; flex-direction: column; gap: .2rem; }
+    .tag-input-wrap {
+      display: flex; flex-wrap: wrap; gap: .3rem; align-items: center;
+      border: 1px solid #ccc; border-radius: 4px; padding: .3rem .4rem;
+      min-height: 2.1rem; cursor: text;
+    }
+    .tag-input-wrap:focus-within { border-color: #3b82f6; outline: none; }
+    .tag-input-wrap input {
+      border: none; outline: none; font-size: .85rem;
+      min-width: 6rem; flex: 1; padding: .1rem 0;
+      background: transparent;
+    }
+    .tag-chip {
+      display: inline-flex; align-items: center; gap: .2rem;
+      border-radius: 999px; padding: .15rem .5rem;
+      font-size: .73rem; font-weight: 500;
+    }
+    .tag-remove {
+      background: none; border: none; cursor: pointer;
+      padding: 0; line-height: 1; font-size: .8rem;
+      opacity: .7; display: inline-flex; align-items: center;
+    }
+    .tag-remove:hover { opacity: 1; }
   </style>
 </head>
 <body>
   <h1>To-Do App</h1>
+
+  <div class="filter-section">
+    <div class="filter-header">Filter by tag</div>
+    <div class="filter-pills" id="filter-pills"></div>
+  </div>
 
   <div class="card">
     <form id="create-form">
@@ -61,17 +113,76 @@
           <input type="date" id="new-due" />
         </div>
       </div>
+      <div class="tag-field">
+        <label>Tags (press Enter or comma to add)</label>
+        <div class="tag-input-wrap" id="new-tag-wrap"></div>
+      </div>
     </form>
   </div>
+
+  <datalist id="tag-datalist"></datalist>
 
   <ul id="task-list"></ul>
 
   <script>
     const list = document.getElementById('task-list');
+    const filterPillsEl = document.getElementById('filter-pills');
 
-    async function loadTasks() {
-      const res = await fetch('/api/tasks');
-      const tasks = await res.json();
+    let allTasks = [];
+    let allTags = [];
+    let activeTagIds = new Set();
+    let createTagInput = null;
+
+    async function loadAll() {
+      const [tasksRes, tagsRes] = await Promise.all([
+        fetch('/api/tasks'),
+        fetch('/api/tags'),
+      ]);
+      allTasks = await tasksRes.json();
+      allTags = await tagsRes.json();
+
+      // Clean stale active tag IDs
+      const validIds = new Set(allTags.map(t => t.id));
+      activeTagIds.forEach(id => { if (!validIds.has(id)) activeTagIds.delete(id); });
+
+      updateTagDatalist();
+      renderFilterBar();
+      renderTasks();
+    }
+
+    function updateTagDatalist() {
+      const dl = document.getElementById('tag-datalist');
+      dl.innerHTML = allTags.map(t => `<option value="${escHtml(t.name)}">`).join('');
+    }
+
+    function renderFilterBar() {
+      if (!allTags.length) {
+        filterPillsEl.innerHTML = '';
+        return;
+      }
+      filterPillsEl.innerHTML = allTags.map(tag => {
+        const active = activeTagIds.has(tag.id) ? ' active' : '';
+        return `<span class="filter-pill${active}" data-tag-id="${tag.id}"
+          style="background:${tag.color};color:${tag.textColor}">${escHtml(tag.name)}</span>`;
+      }).join('');
+      filterPillsEl.querySelectorAll('.filter-pill').forEach(pill => {
+        pill.addEventListener('click', () => {
+          const id = pill.dataset.tagId;
+          if (activeTagIds.has(id)) activeTagIds.delete(id);
+          else activeTagIds.add(id);
+          renderFilterBar();
+          renderTasks();
+        });
+      });
+    }
+
+    function renderTasks() {
+      let tasks = allTasks;
+      if (activeTagIds.size > 0) {
+        tasks = allTasks.filter(t =>
+          t.tags && t.tags.some(tag => activeTagIds.has(tag.id))
+        );
+      }
       render(tasks);
     }
 
@@ -87,9 +198,19 @@
       return parts.join('  ·  ');
     }
 
+    function tagPillsHtml(tags) {
+      if (!tags || !tags.length) return '';
+      return `<div class="task-tags">${tags.map(tag =>
+        `<span class="tag-pill" style="background:${tag.color};color:${tag.textColor}">${escHtml(tag.name)}</span>`
+      ).join('')}</div>`;
+    }
+
     function render(tasks) {
       if (!tasks.length) {
-        list.innerHTML = '<li class="empty">No tasks yet. Add one above!</li>';
+        const msg = activeTagIds.size > 0
+          ? 'No tasks match the selected filter.'
+          : 'No tasks yet. Add one above!';
+        list.innerHTML = `<li class="empty">${msg}</li>`;
         return;
       }
       list.innerHTML = tasks.map(t => `
@@ -97,6 +218,7 @@
           <input class="task-check" type="checkbox" ${t.completed ? 'checked' : ''} title="Toggle complete" />
           <div class="task-body">
             <div class="task-title">${escHtml(t.title)}</div>
+            ${tagPillsHtml(t.tags)}
             ${dateStr(t) ? `<div class="task-dates">${dateStr(t)}</div>` : ''}
             <div class="edit-form hidden">
               <input type="text" class="edit-title" value="${escHtml(t.title)}" />
@@ -104,6 +226,10 @@
                 <div class="date-group"><label>Start</label><input type="date" class="edit-start" value="${t.startDate||''}" /></div>
                 <div class="date-group"><label>End</label><input type="date" class="edit-end" value="${t.endDate||''}" /></div>
                 <div class="date-group"><label>Due</label><input type="date" class="edit-due" value="${t.dueDate||''}" /></div>
+              </div>
+              <div class="tag-field">
+                <label>Tags</label>
+                <div class="tag-input-wrap edit-tag-wrap"></div>
               </div>
               <div class="row">
                 <button class="btn-save save-btn">Save</button>
@@ -120,8 +246,9 @@
 
       list.querySelectorAll('.task-item').forEach(item => {
         const id = item.dataset.id;
+        const task = tasks.find(t => t.id === id);
         item.querySelector('.task-check').addEventListener('change', e => toggleComplete(id, e.target.checked));
-        item.querySelector('.edit-btn').addEventListener('click', () => openEdit(item));
+        item.querySelector('.edit-btn').addEventListener('click', () => openEdit(item, task));
         item.querySelector('.cancel-btn').addEventListener('click', () => closeEdit(item));
         item.querySelector('.save-btn').addEventListener('click', () => saveEdit(id, item));
         item.querySelector('.delete-btn').addEventListener('click', () => deleteTask(id));
@@ -129,12 +256,81 @@
     }
 
     function escHtml(s) {
-      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
-    function openEdit(item) {
+    // --- Tag chip input ---
+    function initTagInput(wrapEl, initialTags) {
+      wrapEl.innerHTML = '';
+      const chips = []; // { name, color, textColor }
+
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.setAttribute('list', 'tag-datalist');
+      input.placeholder = 'Add tag…';
+      wrapEl.appendChild(input);
+
+      function addChip(name) {
+        name = name.trim().toLowerCase();
+        if (!name || chips.find(c => c.name === name)) return;
+        const existing = allTags.find(t => t.name === name);
+        const color = existing ? existing.color : '#e5e7eb';
+        const textColor = existing ? existing.textColor : '#333333';
+        chips.push({ name, color, textColor });
+        renderChips();
+        input.value = '';
+      }
+
+      function removeChip(name) {
+        const idx = chips.findIndex(c => c.name === name);
+        if (idx !== -1) chips.splice(idx, 1);
+        renderChips();
+      }
+
+      function renderChips() {
+        // Remove existing chip elements (keep input)
+        wrapEl.querySelectorAll('.tag-chip').forEach(el => el.remove());
+        chips.forEach(chip => {
+          const el = document.createElement('span');
+          el.className = 'tag-chip';
+          el.style.background = chip.color;
+          el.style.color = chip.textColor;
+          el.innerHTML = `${escHtml(chip.name)}<button class="tag-remove" type="button" aria-label="Remove tag">×</button>`;
+          el.querySelector('.tag-remove').addEventListener('click', () => removeChip(chip.name));
+          wrapEl.insertBefore(el, input);
+        });
+      }
+
+      // Initialize with existing tags
+      if (initialTags) {
+        initialTags.forEach(tag => {
+          chips.push({ name: tag.name, color: tag.color, textColor: tag.textColor });
+        });
+        renderChips();
+      }
+
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ',') {
+          e.preventDefault();
+          addChip(input.value.replace(',', ''));
+        } else if (e.key === 'Backspace' && input.value === '' && chips.length) {
+          removeChip(chips[chips.length - 1].name);
+        }
+      });
+
+      wrapEl.addEventListener('click', () => input.focus());
+
+      return {
+        getTagNames() { return chips.map(c => c.name); }
+      };
+    }
+
+    function openEdit(item, task) {
       item.querySelector('.edit-form').classList.remove('hidden');
       item.querySelector('.edit-btn').classList.add('hidden');
+      const editWrap = item.querySelector('.edit-tag-wrap');
+      const tagInput = initTagInput(editWrap, task.tags || []);
+      item._tagInput = tagInput;
     }
 
     function closeEdit(item) {
@@ -148,41 +344,45 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ completed }),
       });
-      loadTasks();
+      loadAll();
     }
 
     async function saveEdit(id, item) {
       const title = item.querySelector('.edit-title').value.trim();
       if (!title) return;
+      const tags = item._tagInput ? item._tagInput.getTagNames() : undefined;
       const body = {
         title,
         startDate: item.querySelector('.edit-start').value || undefined,
         endDate:   item.querySelector('.edit-end').value   || undefined,
         dueDate:   item.querySelector('.edit-due').value   || undefined,
+        tags,
       };
       await fetch(`/api/tasks/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      loadTasks();
+      loadAll();
     }
 
     async function deleteTask(id) {
       if (!confirm('Delete this task?')) return;
       await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
-      loadTasks();
+      loadAll();
     }
 
     document.getElementById('create-form').addEventListener('submit', async e => {
       e.preventDefault();
       const title = document.getElementById('new-title').value.trim();
       if (!title) return;
+      const tags = createTagInput ? createTagInput.getTagNames() : [];
       const body = {
         title,
         startDate: document.getElementById('new-start').value || undefined,
         endDate:   document.getElementById('new-end').value   || undefined,
         dueDate:   document.getElementById('new-due').value   || undefined,
+        tags,
       };
       await fetch('/api/tasks', {
         method: 'POST',
@@ -190,10 +390,15 @@
         body: JSON.stringify(body),
       });
       e.target.reset();
-      loadTasks();
+      // Re-init tag input after reset clears it
+      createTagInput = initTagInput(document.getElementById('new-tag-wrap'), []);
+      loadAll();
     });
 
-    loadTasks();
+    // Initialize create-form tag input
+    createTagInput = initTagInput(document.getElementById('new-tag-wrap'), []);
+
+    loadAll();
   </script>
 </body>
 </html>
