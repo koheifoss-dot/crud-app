@@ -55,6 +55,14 @@ function relativeLuminance(r: number, g: number, b: number): number {
   return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
 }
 
+function hexToTextColor(hex: string): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const lum = relativeLuminance(r, g, b);
+  return lum > 0.179 ? '#000000' : '#ffffff';
+}
+
 function generateTagColor(): { color: string; text_color: string } {
   const h = Math.floor(Math.random() * 360);
   const s = 55 + Math.floor(Math.random() * 20); // 55-74
@@ -205,6 +213,39 @@ app.put("/api/tasks/:id", (req, res) => {
   }
   const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as TaskRow;
   res.json(rowToTask(updated, getTaskTags(db, id)));
+});
+
+app.put("/api/tags/:id", (req, res) => {
+  const { id } = req.params;
+  const existing = db.prepare("SELECT * FROM tags WHERE id = ?").get(id) as TagRow | undefined;
+  if (!existing) {
+    res.status(404).json({ error: "Tag not found" });
+    return;
+  }
+  const { color, name } = req.body as { color?: string; name?: string };
+  if (color !== undefined && !/^#[0-9a-fA-F]{6}$/.test(color)) {
+    res.status(400).json({ error: "color must be a valid hex color (#rrggbb)" });
+    return;
+  }
+  const newColor = color ?? existing.color;
+  const newTextColor = color ? hexToTextColor(color) : existing.text_color;
+  const newName = name !== undefined ? name.trim().toLowerCase() : existing.name;
+  db.prepare("UPDATE tags SET color = ?, text_color = ?, name = ? WHERE id = ?")
+    .run(newColor, newTextColor, newName, id);
+  const updated = db.prepare("SELECT * FROM tags WHERE id = ?").get(id) as TagRow;
+  res.json(rowToTag(updated));
+});
+
+app.delete("/api/tags/:id", (req, res) => {
+  const { id } = req.params;
+  const existing = db.prepare("SELECT * FROM tags WHERE id = ?").get(id) as TagRow | undefined;
+  if (!existing) {
+    res.status(404).json({ error: "Tag not found" });
+    return;
+  }
+  db.prepare("DELETE FROM task_tags WHERE tag_id = ?").run(id);
+  db.prepare("DELETE FROM tags WHERE id = ?").run(id);
+  res.status(204).send();
 });
 
 app.delete("/api/tasks/:id", (req, res) => {
